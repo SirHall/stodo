@@ -7,7 +7,7 @@
 #define true 1
 #define false 0
 
-#define MAX_TODO_LENGTH 256
+#define MAX_TODO_LENGTH 2048
 
 char  todoFileName[]   = ".todo";
 char *fullTodoFilePath = NULL;
@@ -61,8 +61,8 @@ void PrintHelp()
 
 char *GetTodoFilePath()
 {
-    char *loc =
-        (char *)malloc(strlen(getenv("HOME")) + strlen(todoFileName) + 2);
+    char *loc = (char *)calloc(
+        (strlen(getenv("HOME")) + strlen(todoFileName) + 2), sizeof(char));
     strcat(loc, getenv("HOME"));
     strcat(loc, "/");
     strcat(loc, todoFileName);
@@ -94,28 +94,33 @@ void PrintTodo()
 
 char *CombineArgvIntoMsg(int argc, char **argv, int startIndex, int count)
 {
-    char *str = (char *)malloc(1);
+    char *str = (char *)calloc(MAX_TODO_LENGTH, sizeof(char));
     str[0]    = '\0';
-    for (int i = startIndex; i < startIndex + count; i++)
+
+    char spc[] = " ", newLine[] = "\n";
+
+    for (int i = startIndex; (i < startIndex + count) && (i < argc); i++)
     {
         strcat(str, argv[i]);
         if (i < argc - 1)
-            strcat(str, " ");
+            strcat(str, spc);
     }
 
-    strcat(str, "\n");
+    strcat(str, newLine);
     return str;
 }
 
 void AppendTodo(int argc, char **argv)
 {
     EnsureExists();
-    FILE *file       = fopen(fullTodoFilePath, "a");
-    char *strToWrite = CombineArgvIntoMsg(argc, argv, 1, argc - 1);
 
-    fputs(strToWrite, file);
+    char *strToWrite = CombineArgvIntoMsg(argc, argv, 1, argc - 1);
+    FILE *todoFile   = fopen(fullTodoFilePath, "a");
+
+    fputs(strToWrite, todoFile);
+
+    fclose(todoFile);
     free(strToWrite);
-    fclose(file);
 }
 
 char **ReadTodo(int *linesCount)
