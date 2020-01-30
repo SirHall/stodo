@@ -19,20 +19,23 @@ void  PrintTodo();
 void  EnsureExists();
 void  AppendTodo(int argc, char **argv);
 void  DeleteLineFromTodo(int argc, char **argv, int deleteFlagIndex);
+void  InsertTodo(int argc, char **argv, int insertFlagIndex);
 
 int main(int argc, char *argv[])
 {
     fullTodoFilePath = GetTodoFilePath();
 
-    int deleteIndex = -1;
+    int flagIndex = -1;
 
     if (ArgIndex(argc, argv, "-h") != -1 ||
         ArgIndex(argc, argv, "--help") != -1)
         PrintHelp();
     else if (argc <= 1 || ArgIndex(argc, argv, "-p") != -1)
         PrintTodo();
-    else if ((deleteIndex = ArgIndex(argc, argv, "-d")) != -1)
-        DeleteLineFromTodo(argc, argv, deleteIndex);
+    else if ((flagIndex = ArgIndex(argc, argv, "-d")) != -1)
+        DeleteLineFromTodo(argc, argv, flagIndex);
+    else if ((flagIndex = ArgIndex(argc, argv, "-i")) != -1)
+        InsertTodo(argc, argv, flagIndex);
     else
         AppendTodo(argc, argv);
 
@@ -89,82 +92,102 @@ void PrintTodo()
     fclose(file);
 }
 
+char *CombineArgvIntoMsg(int argc, char **argv, int startIndex, int count)
+{
+    char *str = (char *)malloc(1);
+    str[0]    = '\0';
+    for (int i = startIndex; i < startIndex + count; i++)
+    {
+        strcat(str, argv[i]);
+        if (i < argc - 1)
+            strcat(str, " ");
+    }
+
+    strcat(str, "\n");
+    return str;
+}
+
 void AppendTodo(int argc, char **argv)
 {
     EnsureExists();
     FILE *file       = fopen(fullTodoFilePath, "a");
-    char *strToWrite = (char *)malloc(1);
-    strToWrite[0]    = '\0';
+    char *strToWrite = CombineArgvIntoMsg(argc, argv, 1, argc - 1);
 
-    for (int i = 1; i < argc; i++)
-    {
-        strcat(strToWrite, argv[i]);
-        if (i < argc - 1)
-            strcat(strToWrite, " ");
-    }
-
-    strcat(strToWrite, "\n");
     fputs(strToWrite, file);
     free(strToWrite);
     fclose(file);
 }
 
-void DeleteLineFromTodo(int argc, char **argv, int deleteFlagIndex)
+char **ReadTodo(int *linesCount)
 {
     EnsureExists();
-
-    // Find out which index to delete, if no index is given, delete 0 by
-    // default
-    int deleteIndex = -1;
-
-    if ((deleteFlagIndex + 1) < argc)
-    {
-        int len = strlen(argv[deleteFlagIndex + 1]);
-        for (int i = 0; i < len; i++)
-        {
-            if (!isdigit(argv[deleteFlagIndex + 1][i]))
-            {
-                printf("'%s' is not recognized as a todo entry index\n",
-                       argv[deleteFlagIndex + 1]);
-                return;
-            }
-        }
-
-        // Find out which index the user wishes to delete.
-        // atoi() 'should' be safe here as we already checked to make sure
-        // that the argument is completely made up of digits.
-        deleteIndex = atoi(argv[deleteFlagIndex + 1]);
-    }
-    else
-    {
-        // The user has not specified which index to delete
-        deleteIndex = 0; // Default to 0
-    }
-
-    // Read lines from todofile
 
     FILE * todoFileRead = fopen(fullTodoFilePath, "r");
     char **lines        = (char **)malloc(1);
 
     char *newLine = calloc(MAX_TODO_LENGTH, sizeof(char));
 
-    int linesCount = 0;
+    *linesCount = 0;
 
-    // int readingCurrentLine = 0;
     while (fgets(newLine, MAX_TODO_LENGTH, todoFileRead) != NULL)
     {
-        // if (readingCurrentLine == deleteIndex || !isgraph(newLine[0]))
-        //     continue; // Don't save this line
 
-        lines = realloc(lines, (linesCount + 1) * sizeof(char **));
-        linesCount++;
-        lines[linesCount - 1] = newLine;
-        newLine               = (char *)calloc(MAX_TODO_LENGTH, sizeof(char));
-
-        // readingCurrentLine++;
+        lines = realloc(lines, (*linesCount + 1) * sizeof(char **));
+        (*linesCount)++;
+        lines[*linesCount - 1] = newLine;
+        newLine                = (char *)calloc(MAX_TODO_LENGTH, sizeof(char));
     }
 
+    free(newLine);
     fclose(todoFileRead);
+
+    return lines;
+}
+
+void FreeTodoStructure(char **todoData, int linesCount)
+{
+    for (int i = 0; i < linesCount; i++)
+        free(todoData[i]);
+    free(todoData);
+}
+
+int IsStringANumber(char const *str)
+{
+    int len = strlen(str);
+    for (int i = 0; i < len; i++)
+        if (!isdigit(str[i]))
+            return false;
+    return true;
+}
+
+// Returns whether or not the flag was found
+int GetFlagValWithDefault(int argc, char **argv, int flagIndex,
+                          int defaultValue, int *flagValue)
+{
+    if ((flagIndex + 1) < argc)
+    {
+        if (!IsStringANumber(argv[flagIndex + 1]))
+            return false;
+        *flagValue = atoi(argv[flagIndex + 1]);
+    }
+    else
+    {
+        *flagValue = defaultValue;
+    }
+
+    return true;
+}
+
+void DeleteLineFromTodo(int argc, char **argv, int deleteFlagIndex)
+{
+    // Find out which index to delete, if no index is given, delete 0 by
+    // default
+    int deleteIndex = -1;
+    GetFlagValWithDefault(argc, argv, deleteFlagIndex, 0, &deleteIndex);
+
+    // Read lines from todofile
+    int    linesCount = 0;
+    char **lines      = ReadTodo(&linesCount);
 
     if (deleteIndex >= linesCount)
     {
@@ -177,14 +200,48 @@ void DeleteLineFromTodo(int argc, char **argv, int deleteFlagIndex)
     FILE *todoFileWrite = fopen(fullTodoFilePath, "w");
 
     for (int i = 0; i < linesCount; i++)
-    {
         if (i != deleteIndex && lines[i][0] != 0)
-        {
             fputs(lines[i], todoFileWrite);
-            free(lines[i]);
-        }
-    }
-    free(lines);
+
+    FreeTodoStructure(lines, linesCount);
 
     fclose(todoFileWrite);
+}
+
+void InsertTodo(int argc, char **argv, int insertFlagIndex)
+{
+    int insertIndex  = -1;
+    int todoMsgIndex = insertFlagIndex + 1;
+
+    if (GetFlagValWithDefault(argc, argv, insertFlagIndex, 0, &insertIndex))
+        todoMsgIndex++; // The msg starts on the second index after the flag
+
+    int    linesCount = 0;
+    char **lines      = ReadTodo(&linesCount);
+
+    // If insertIndex == linesCount, then append onto the end
+    if (insertIndex < 0 || insertIndex > linesCount)
+    {
+        printf("%d is not a valid insertion index\n", insertIndex);
+        return;
+    }
+
+    FILE *todoFile = fopen(fullTodoFilePath, "w");
+
+    char *insertMsg =
+        CombineArgvIntoMsg(argc, argv, todoMsgIndex, argc - todoMsgIndex);
+
+    for (int i = 0; i < linesCount; i++)
+    {
+        if (i == insertIndex)
+            fputs(insertMsg, todoFile);
+        fputs(lines[i], todoFile);
+    }
+
+    if (insertIndex == linesCount)
+        fputs(insertMsg, todoFile);
+
+    fclose(todoFile);
+    FreeTodoStructure(lines, linesCount);
+    free(insertMsg);
 }
